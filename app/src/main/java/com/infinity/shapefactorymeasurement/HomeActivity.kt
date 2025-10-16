@@ -2,10 +2,14 @@ package com.infinity.roometric
 
 import android.Manifest
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.LayoutInflater
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +24,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.ar.core.ArCoreApk
+import com.google.ar.core.exceptions.UnavailableException
 import com.infinity.roometric.data.RoomEntity
 import com.infinity.roometric.databinding.ActivityHomeBinding
 import com.infinity.roometric.viewmodel.RoomViewModel
@@ -38,11 +44,123 @@ class HomeActivity : AppCompatActivity() {
         }
     }
     
+    private fun checkArCoreAvailability() {
+        try {
+            val availability = ArCoreApk.getInstance().checkAvailability(this)
+            when (availability) {
+                ArCoreApk.Availability.SUPPORTED_INSTALLED,
+                ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD,
+                ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED -> {
+                    // ARCore is supported, continue normally
+                    return
+                }
+                ArCoreApk.Availability.UNKNOWN_ERROR,
+                ArCoreApk.Availability.UNKNOWN_CHECKING,
+                ArCoreApk.Availability.UNKNOWN_TIMED_OUT -> {
+                    // Show a warning but allow app to continue
+                    showArCoreWarningDialog(
+                        "ARCore Status Unknown",
+                        "Unable to verify ARCore compatibility. Some features may not work properly."
+                    )
+                }
+                ArCoreApk.Availability.UNSUPPORTED_DEVICE_NOT_CAPABLE -> {
+                    // Device doesn't support ARCore
+                    showArCoreErrorDialog(
+                        "Device Not Compatible",
+                        "Your device doesn't support ARCore, which is required for AR measurements. You can still create rooms and view estimates, but AR measurement features will be disabled."
+                    )
+                }
+            }
+        } catch (e: UnavailableException) {
+            showArCoreErrorDialog(
+                "ARCore Error",
+                "There was an error checking ARCore compatibility. Some features may not work properly."
+            )
+        }
+    }
+    
+    private fun showArCoreWarningDialog(title: String, message: String) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("Continue") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .setIcon(android.R.drawable.ic_dialog_alert)
+            .show()
+    }
+    
+    private fun showArCoreErrorDialog(title: String, message: String) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("Continue") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .setNegativeButton("Learn More") { _, _ ->
+                // Open Google Play Store or ARCore page
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.google.ar.core")))
+                } catch (e: Exception) {
+                    // Fallback to web URL
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=com.google.ar.core")))
+                }
+            }
+            .setIcon(android.R.drawable.ic_dialog_alert)
+            .show()
+    }
+    
+    private fun showDisclaimerDialogIfNeeded() {
+        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        val disclaimerShown = prefs.getBoolean("disclaimer_shown", false)
+        
+        if (!disclaimerShown) {
+            showDisclaimerDialog()
+        }
+    }
+    
+    private fun showDisclaimerDialog() {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_disclaimer, null)
+        val checkBox = dialogView.findViewById<CheckBox>(R.id.checkboxUnderstand)
+        
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setView(dialogView)
+            .setCancelable(false)
+            .setPositiveButton(R.string.disclaimer_button_understand, null) // We'll override this later
+            .setNegativeButton(R.string.disclaimer_button_exit) { _, _ ->
+                finish()
+            }
+            .create()
+        
+        dialog.setOnShowListener {
+            val positiveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            positiveButton.isEnabled = false
+            
+            checkBox.setOnCheckedChangeListener { _, isChecked ->
+                positiveButton.isEnabled = isChecked
+            }
+            
+            positiveButton.setOnClickListener {
+                // Mark disclaimer as shown
+                val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+                prefs.edit().putBoolean("disclaimer_shown", true).apply()
+                
+                dialog.dismiss()
+            }
+        }
+        
+        dialog.show()
+    }
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityHomeBinding.inflate(layoutInflater)
         setContentView(binding.root)
         
+        // Show disclaimer on first launch
+        showDisclaimerDialogIfNeeded()
+        
+        checkArCoreAvailability()
         checkAndRequestStoragePermission()
         setupRecyclerView()
         setupClickListeners()

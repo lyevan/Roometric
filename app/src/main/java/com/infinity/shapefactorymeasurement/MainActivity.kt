@@ -7,6 +7,9 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.navigation.fragment.NavHostFragment
 import com.google.android.material.tabs.TabLayout
+import com.google.ar.core.ArCoreApk
+import com.google.ar.core.exceptions.UnavailableException
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.infinity.roometric.databinding.ActivityMainBinding
 import com.infinity.roometric.viewmodel.ViewModel
 
@@ -23,6 +26,13 @@ class MainActivity : AppCompatActivity() {
         binding= ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         
+        // Check ARCore availability before proceeding
+        if (!checkArCoreAvailability()) {
+            // If ARCore is not available, show error and close activity
+            finish()
+            return
+        }
+        
         // Get room info from intent
         currentRoomId = intent.getLongExtra("ROOM_ID", -1)
         currentRoomName = intent.getStringExtra("ROOM_NAME") ?: "Unknown Room"
@@ -32,6 +42,58 @@ class MainActivity : AppCompatActivity() {
         
         // Setup tab layout
         setupTabs()
+    }
+    
+    private fun checkArCoreAvailability(): Boolean {
+        return try {
+            val availability = ArCoreApk.getInstance().checkAvailability(this)
+            when (availability) {
+                ArCoreApk.Availability.SUPPORTED_INSTALLED,
+                ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD,
+                ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED -> {
+                    // ARCore is supported, continue normally
+                    true
+                }
+                ArCoreApk.Availability.UNKNOWN_ERROR,
+                ArCoreApk.Availability.UNKNOWN_CHECKING,
+                ArCoreApk.Availability.UNKNOWN_TIMED_OUT -> {
+                    // Show a warning but allow app to continue
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("ARCore Status Unknown")
+                        .setMessage("Unable to verify ARCore compatibility. Some features may not work properly.")
+                        .setPositiveButton("Continue") { dialog, _ ->
+                            dialog.dismiss()
+                        }
+                        .setIcon(android.R.drawable.ic_dialog_alert)
+                        .show()
+                    true
+                }
+                ArCoreApk.Availability.UNSUPPORTED_DEVICE_NOT_CAPABLE -> {
+                    // Device doesn't support ARCore - show error and return to home
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("Device Not Compatible")
+                        .setMessage("Your device doesn't support ARCore, which is required for AR measurements. Please use a compatible device.")
+                        .setPositiveButton("Return to Home") { _, _ ->
+                            finish()
+                        }
+                        .setIcon(android.R.drawable.ic_dialog_alert)
+                        .setCancelable(false)
+                        .show()
+                    false
+                }
+            }
+        } catch (e: UnavailableException) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("ARCore Error")
+                .setMessage("There was an error checking ARCore compatibility. Please try again.")
+                .setPositiveButton("Return to Home") { _, _ ->
+                    finish()
+                }
+                .setIcon(android.R.drawable.ic_dialog_alert)
+                .setCancelable(false)
+                .show()
+            false
+        }
     }
     
     private fun setupTabs() {

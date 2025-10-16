@@ -1,4 +1,17 @@
 <resources>
-    <string name="app_name">Roometric: 3D AR Planner</string>
+    <string name="app_name">Smart Room Calculator</string>
     <string name="finish_button">Finish</string>
+
+    <!-- Disclaimer Dialog -->
+    <string name="disclaimer_title">Important Disclaimer</string>
+    <string name="disclaimer_accuracy_warning">⚠️ Measurement Accuracy Warning</string>
+    <string name="disclaimer_main_text">This AR measurement application is designed for ESTIMATION purposes only and is NOT 100% accurate. Measurements taken with this app may contain significant errors due to:</string>
+    <string name="disclaimer_error_sources">• Device camera quality and calibration\n• Lighting conditions\n• Surface textures and materials\n• User measurement technique\n• ARCore system limitations\n• Device hardware capabilities</string>
+    <string name="disclaimer_guidelines_title">Important Guidelines:</string>
+    <string name="disclaimer_guidelines">• Use this app ONLY for preliminary material estimation\n• Always verify measurements with professional tools\n• Consult licensed professionals for construction projects\n• Double-check all calculations before purchasing materials\n• Consider additional waste material (typically 10-15%)</string>
+    <string name="disclaimer_professional_tools_title">For accurate measurements, always use:</string>
+    <string name="disclaimer_professional_tools">• Professional measuring tapes\n• Laser measuring devices\n• Calibrated surveying equipment\n• Licensed contractors or architects</string>
+    <string name="disclaimer_checkbox_text">I understand that this app provides estimates only and I will use proper measurement tools for accurate results</string>
+    <string name="disclaimer_button_understand">I Understand</string>
+    <string name="disclaimer_button_exit">Exit App</string>
 </resources>
