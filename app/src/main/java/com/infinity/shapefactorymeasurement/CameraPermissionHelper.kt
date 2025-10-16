@@ -1,4 +1,4 @@
-package com.infinity.shapefactorymeasurement
+package com.infinity.roometric
 
 import android.Manifest
 import android.app.Activity

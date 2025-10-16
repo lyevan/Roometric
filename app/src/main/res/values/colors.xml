@@ -7,4 +7,23 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Custom colors for room and measurement lists -->
+    <color name="room_card_background">#FFF8F9FA</color> <!-- #F8F9FA -->
+    <color name="room_name_text">#FF1A1A1A</color> <!-- #1A1A1A -->
+    <color name="room_description_text">#FF6C757D</color> <!-- #6C757D -->
+    <color name="room_date_text">#FF8E9297</color> <!-- #8E9297 -->
+
+    <color name="measurement_card_background">#FFF8F9FA</color> <!-- #F8F9FA -->
+    <color name="measurement_name_text">#FF1A1A1A</color> <!-- #1A1A1A -->
+    <color name="measurement_description_text">#FF6C757D</color> <!-- #6C757D -->
+    <color name="measurement_dimensions_text">#FF495057</color> <!-- #495057 -->
+    <color name="measurement_area_text">#FF1A1A1A</color> <!-- #1A1A1A -->
+
+    <color name="floor_badge_background">#FF4CAF50</color> <!-- #4CAF50 -->
+    <color name="wall_badge_background">#FF2196F3</color> <!-- #2196F3 -->
+    <color name="badge_text">#FFFFFFFF</color> <!-- #FFFFFF -->
+
+    <color name="header_text">#FF1A1A1A</color> <!-- #1A1A1A -->
+    <color name="header_divider">#FFE9ECEF</color> <!-- #E9ECEF -->
 </resources>

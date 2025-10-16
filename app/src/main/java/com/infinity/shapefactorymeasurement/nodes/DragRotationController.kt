@@ -1,4 +1,4 @@
-package com.infinity.shapefactorymeasurement.nodes
+package com.infinity.roometric.nodes
 import android.os.Handler
 import com.google.ar.sceneform.Node
 import com.google.ar.sceneform.math.Quaternion

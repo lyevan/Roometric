@@ -1,26 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
-    android:padding="5dp"
-    android:elevation="20dp"
-    app:cardElevation="20dp"
-    app:cardBackgroundColor="#4DF6493E"
+    android:padding="8dp"
+    android:elevation="0dp"
+    app:cardElevation="0dp"
+    app:cardBackgroundColor="#CC000000"
     android:layout_height="wrap_content"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    app:cardCornerRadius="10dp">
+    app:cardCornerRadius="6dp">
 
     <TextView
         android:id="@+id/planetInfoCard"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:layout_margin="10dp"
+        android:layout_margin="6dp"
         android:gravity="center"
         android:text="Test"
         android:textStyle="bold"
         android:textAlignment="center"
         android:textSize="14sp"
-        android:textColor="@color/white"/>
+        android:textColor="@color/white"
+        android:shadowColor="#000000"
+        android:shadowDx="1"
+        android:shadowDy="1"
+        android:shadowRadius="2"/>
 
 </androidx.cardview.widget.CardView>
 

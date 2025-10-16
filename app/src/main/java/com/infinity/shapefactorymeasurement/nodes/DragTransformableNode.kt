@@ -1,4 +1,4 @@
-package com.infinity.shapefactorymeasurement.nodes
+package com.infinity.roometric.nodes
 import com.google.ar.sceneform.ux.TransformableNode
 import com.google.ar.sceneform.ux.TransformationSystem
 

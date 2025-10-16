@@ -1,4 +1,4 @@
-package com.infinity.shapefactorymeasurement.viewmodel
+package com.infinity.roometric.viewmodel
 
 import androidx.lifecycle.ViewModel
 import com.google.ar.sceneform.AnchorNode

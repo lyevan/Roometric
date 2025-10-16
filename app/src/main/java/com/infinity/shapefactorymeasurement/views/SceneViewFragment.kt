@@ -1,4 +1,4 @@
-package com.infinity.shapefactorymeasurement.views
+package com.infinity.roometric.views
 
 
 import android.os.Bundle
@@ -14,11 +14,11 @@ import com.google.ar.sceneform.math.Quaternion
 import com.google.ar.sceneform.math.Vector3
 import com.google.ar.sceneform.ux.FootprintSelectionVisualizer
 import com.google.ar.sceneform.ux.TransformationSystem
-import com.infinity.shapefactorymeasurement.MainActivity
-import com.infinity.shapefactorymeasurement.R
-import com.infinity.shapefactorymeasurement.viewmodel.ViewModel
-import com.infinity.shapefactorymeasurement.databinding.FragmentSceneViewBinding
-import com.infinity.shapefactorymeasurement.nodes.DragTransformableNode
+import com.infinity.roometric.MainActivity
+import com.infinity.roometric.R
+import com.infinity.roometric.viewmodel.ViewModel
+import com.infinity.roometric.databinding.FragmentSceneViewBinding
+import com.infinity.roometric.nodes.DragTransformableNode
 import java.util.*
 
 class SceneViewFragment : Fragment(R.layout.fragment_scene_view) {
