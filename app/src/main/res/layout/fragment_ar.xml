@@ -94,6 +94,22 @@
         android:src="@drawable/ic_plane_node_remove"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
+    
+    <!-- Plane Detection Mode Button - positioned above clear button -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/btnPlaneMode"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginBottom="16dp"
+        android:background="@color/white"
+        android:clickable="true"
+        android:elevation="2dp"
+        android:foregroundGravity="center"
+        android:contentDescription="Plane Detection Mode"
+        app:layout_constraintBottom_toTopOf="@+id/btnClear"
+        app:layout_constraintStart_toStartOf="parent"
+        app:srcCompat="@android:drawable/ic_menu_view" />
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/btnAdd"
@@ -257,7 +273,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Tap 'New Measurement' to place the first point"
+                android:text="Tap the center button to place the first point"
                 android:textAlignment="center"
                 android:textColor="#666666"
                 android:textSize="14sp" />

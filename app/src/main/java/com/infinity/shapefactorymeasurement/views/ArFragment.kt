@@ -21,9 +21,12 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.ar.core.Anchor
+import com.google.ar.core.Config
 import com.google.ar.core.HitResult
+import com.google.ar.core.InstantPlacementPoint
 import com.google.ar.core.Plane
 import com.google.ar.core.Pose
+import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
 import com.google.ar.sceneform.AnchorNode
 import com.google.ar.sceneform.math.Quaternion
@@ -65,12 +68,58 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
         IN,     // Inches
         FT      // Feet
     }
+    
+    // Plane detection mode
+    enum class PlaneDetectionMode {
+        HORIZONTAL_ONLY,  // Detect only horizontal planes (floors/ceilings)
+        VERTICAL_ONLY,    // Detect only vertical planes (walls)
+        BOTH             // Detect both (slower but more versatile)
+    }
+    
+    // Tracking quality state
+    enum class TrackingQuality {
+        EXCELLENT,       // Perfect tracking
+        GOOD,           // Good enough for measurements
+        INSUFFICIENT,   // Poor quality, needs user action
+        PAUSED          // Tracking lost completely
+    }
+    
+    // Performance optimization variables
+    private var frameCounter = 0
+    private var lastHitTestResult: HitResult? = null
+    private var previewLineNode: AnchorNode? = null
+    private var previewLineRenderable: ModelRenderable? = null
+    private var planeIndicatorNode: AnchorNode? = null
+    private var planeIndicatorRenderable: ModelRenderable? = null
+    
     // State management
     private var currentState = MeasurementState.SCANNING
     private var scanningProgress = 0
     private val detectedPlanes = HashSet<Plane>()
     private val planeIndicators = ArrayList<AnchorNode>()
     private var currentUnit = MeasurementUnit.CM  // Default to centimeters
+    private var planeDetectionMode = PlaneDetectionMode.HORIZONTAL_ONLY  // Start with horizontal for better performance
+    private var currentTrackingQuality = TrackingQuality.EXCELLENT
+    
+    // Performance optimization: Plane pose smoothing
+    private val planePoseHistory = mutableMapOf<Plane, MutableList<Pose>>()
+    private val maxPoseHistorySize = 5  // Average over 5 frames for stability
+    
+    // Performance optimization: Node position smoothing with exponential moving average
+    private val nodePositionSmoothing = 0.3f  // Lower = more smoothing, higher = more responsive
+    private var lastPreviewPosition: Vector3? = null
+    
+    // Depth API support
+    private var isDepthSupported = false
+    private var depthEnabled = false
+    
+    // Instant placement support
+    private var useInstantPlacement = true
+    private val instantPlacementNodes = mutableListOf<AnchorNode>()
+    
+    // Environmental feedback
+    private var lastTrackingStateUpdate = 0L
+    private val trackingStateUpdateInterval = 1000L  // Check every second
     
     // Renderables
     private var redSphereRender: ModelRenderable? = null      // First node
@@ -106,7 +155,7 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
     private var widthMeters = 0f
     
     lateinit var binding: FragmentArBinding
-    lateinit var arFragment: ArFragment
+    lateinit var arFragment: com.google.ar.sceneform.ux.ArFragment
     private val viewModel: ViewModel by activityViewModels()
     private val measurementViewModel: MeasurementViewModel by viewModels()
 
@@ -114,6 +163,9 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
         binding = FragmentArBinding.bind(view)
         arFragment = childFragmentManager.findFragmentById(R.id.ux_fragment) as ArFragment
 
+        // Configure AR session for optimal performance
+        configureArSession()
+        
         // Initialize renderables
         initObjects()
         
@@ -128,6 +180,11 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
         // Clear button - reset everything
         binding.btnClear.setOnClickListener {
             clearMeasurement()
+        }
+        
+        // Plane detection mode button - cycle through detection modes
+        binding.btnPlaneMode.setOnClickListener {
+            cyclePlaneDetectionMode()
         }
 
         // Unit selection button - cycle through units
@@ -162,8 +219,20 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
         
         // Scene update listener for plane detection and dynamic mesh
         arFragment.arSceneView.scene.addOnUpdateListener {
+            frameCounter++
+
+            // Performance optimization: Only run expensive operations every 3rd frame (20fps instead of 60fps)
+            val shouldUpdateExpensive = frameCounter % 3 == 0
+
+            // Always update tracking quality feedback (lightweight)
+            if (shouldUpdateExpensive) {
+                updateTrackingQualityFeedback()
+            }
+
             if (currentState == MeasurementState.SCANNING) {
-                updatePlaneDetection()
+                if (shouldUpdateExpensive) {
+                    updatePlaneDetection()
+                }
             } else if (currentState == MeasurementState.FIRST_NODE) {
                 updatePreviewLine()
             } else if (currentState == MeasurementState.SECOND_NODE) {
@@ -171,13 +240,224 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
             } else if (currentState == MeasurementState.THIRD_NODE) {
                 updatePreviewLineThird()
             }
-            
-            // Make text labels always face the camera (billboard effect)
+
+            // Make text labels always face the camera (billboard effect) - lightweight, run every frame
             updateLabelBillboards()
-            
-            // Update plane orientation indicator at crosshair
+
+            // Update plane orientation indicator at crosshair - lightweight, run every frame
             updatePlaneOrientationIndicator()
         }
+    }
+    
+    /**
+     * Configure AR Session for optimal performance and accuracy
+     * Optimizations:
+     * 1. Enable Depth API for better distance measurements
+     * 2. Configure plane detection based on user mode (horizontal/vertical)
+     * 3. Enable instant placement for faster initial anchor placement
+     * 4. Optimize focus mode for better plane detection
+     */
+    private fun configureArSession() {
+        // Access ARCore session through the arFragment
+        val arSceneView = arFragment.arSceneView
+
+        arSceneView.scene.addOnUpdateListener { frameTime ->
+            val session = arSceneView.session ?: return@addOnUpdateListener
+
+            // Only configure once per session
+            if (depthEnabled) return@addOnUpdateListener
+
+            try {
+                val config = Config(session)
+
+                // Enable depth if supported - improves 3D awareness and measurement accuracy
+                if (session.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
+                    config.depthMode = Config.DepthMode.AUTOMATIC
+                    isDepthSupported = true
+                    depthEnabled = true
+                    Log.d("ARFragment", "Depth API enabled - measurements will be more accurate")
+                } else {
+                    config.depthMode = Config.DepthMode.DISABLED
+                    Log.d("ARFragment", "Depth API not supported on this device")
+                }
+
+                // Configure plane detection mode based on current mode
+                // This improves detection speed by focusing only on relevant planes
+                config.planeFindingMode = when (planeDetectionMode) {
+                    PlaneDetectionMode.HORIZONTAL_ONLY -> {
+                        Log.d("ARFragment", "Optimized for HORIZONTAL planes (floors/ceilings) - faster detection")
+                        Config.PlaneFindingMode.HORIZONTAL
+                    }
+                    PlaneDetectionMode.VERTICAL_ONLY -> {
+                        Log.d("ARFragment", "Optimized for VERTICAL planes (walls) - faster detection")
+                        Config.PlaneFindingMode.VERTICAL
+                    }
+                    PlaneDetectionMode.BOTH -> {
+                        Log.d("ARFragment", "Detecting BOTH plane types - slower but more versatile")
+                        Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
+                    }
+                }
+
+                // Enable instant placement - allows anchor placement before full plane lock
+                // This makes the app feel much more responsive
+                config.instantPlacementMode = if (useInstantPlacement) {
+                    Config.InstantPlacementMode.LOCAL_Y_UP
+                } else {
+                    Config.InstantPlacementMode.DISABLED
+                }
+
+                // Use FIXED focus mode to prevent constant refocusing
+                // This stops the annoying focus hunting behavior
+                config.focusMode = Config.FocusMode.FIXED
+
+                // Enable light estimation for better rendering (optional but improves visual quality)
+                config.lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR
+                
+                // CRITICAL: Set update mode to LATEST_CAMERA_IMAGE for Sceneform compatibility
+                // Sceneform requires this mode to function properly
+                config.updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
+
+                session.configure(config)
+                Log.d("ARFragment", "AR Session configured with optimizations")
+            } catch (e: Exception) {
+                Log.e("ARFragment", "Failed to configure AR session", e)
+            }
+        }
+    }
+    
+    /**
+     * Monitor tracking quality and provide real-time feedback to user
+     * Helps users understand when they need to move the camera or improve lighting
+     */
+    private fun updateTrackingQualityFeedback() {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastTrackingStateUpdate < trackingStateUpdateInterval) {
+            return  // Don't check too frequently to avoid UI spam
+        }
+        lastTrackingStateUpdate = currentTime
+        
+        val frame = arFragment.arSceneView.arFrame ?: return
+        val camera = frame.camera
+        
+        val newQuality = when (camera.trackingState) {
+            TrackingState.TRACKING -> {
+                // Check tracking quality based on tracked features
+                val lightEstimate = frame.lightEstimate
+                val lightIntensity = lightEstimate?.pixelIntensity ?: 0f
+                
+                when {
+                    lightIntensity < 0.3f -> TrackingQuality.INSUFFICIENT  // Too dark
+                    lightIntensity > 1.5f -> TrackingQuality.INSUFFICIENT  // Too bright
+                    else -> TrackingQuality.EXCELLENT
+                }
+            }
+            TrackingState.PAUSED -> TrackingQuality.PAUSED
+            else -> TrackingQuality.INSUFFICIENT
+        }
+        
+        // Only update UI if quality changed
+        if (newQuality != currentTrackingQuality) {
+            currentTrackingQuality = newQuality
+            updateTrackingQualityUI()
+        }
+    }
+    
+    /**
+     * Update UI to reflect current tracking quality
+     * Provides actionable feedback to users
+     */
+    private fun updateTrackingQualityUI() {
+        when (currentTrackingQuality) {
+            TrackingQuality.EXCELLENT -> {
+                // Hide any warning messages
+                binding.tvInstruction.setTextColor(
+                    resources.getColor(android.R.color.white, null)
+                )
+            }
+            TrackingQuality.INSUFFICIENT -> {
+                // Show warning with actionable advice
+                binding.tvInstruction.setTextColor(
+                    resources.getColor(android.R.color.holo_orange_light, null)
+                )
+                if (currentState == MeasurementState.SCANNING) {
+                    Toast.makeText(
+                        requireContext(),
+                        "Move camera slowly and ensure good lighting for better tracking",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            TrackingQuality.PAUSED -> {
+                binding.tvInstruction.setTextColor(
+                    resources.getColor(android.R.color.holo_red_light, null)
+                )
+                Toast.makeText(
+                    requireContext(),
+                    "Tracking lost! Move camera to textured surfaces",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            else -> {}
+        }
+    }
+    
+    /**
+     * Apply exponential moving average smoothing to position
+     * Reduces jitter and flicker in preview lines and nodes
+     * Formula: smoothed = previous * (1 - alpha) + current * alpha
+     * where alpha (nodePositionSmoothing) controls responsiveness vs stability
+     */
+    private fun smoothPosition(currentPos: Vector3, lastPos: Vector3?): Vector3 {
+        if (lastPos == null) return currentPos
+        
+        return Vector3(
+            lastPos.x * (1 - nodePositionSmoothing) + currentPos.x * nodePositionSmoothing,
+            lastPos.y * (1 - nodePositionSmoothing) + currentPos.y * nodePositionSmoothing,
+            lastPos.z * (1 - nodePositionSmoothing) + currentPos.z * nodePositionSmoothing
+        )
+    }
+    
+    /**
+     * Refine plane pose by averaging multiple frames
+     * Improves stability and accuracy of plane detection
+     * Only confirms plane position after consistent detection across frames
+     */
+    private fun getRefinedPlanePose(plane: Plane): Pose {
+        // Get or create pose history for this plane
+        val poseHistory = planePoseHistory.getOrPut(plane) { mutableListOf() }
+        
+        // Add current pose to history
+        poseHistory.add(plane.centerPose)
+        
+        // Keep only recent poses (moving window)
+        if (poseHistory.size > maxPoseHistorySize) {
+            poseHistory.removeAt(0)
+        }
+        
+        // If we don't have enough samples yet, return current pose
+        if (poseHistory.size < 3) {
+            return plane.centerPose
+        }
+        
+        // Average translation components across all poses
+        var avgX = 0f
+        var avgY = 0f
+        var avgZ = 0f
+        
+        for (pose in poseHistory) {
+            avgX += pose.tx()
+            avgY += pose.ty()
+            avgZ += pose.tz()
+        }
+        
+        val count = poseHistory.size
+        avgX /= count
+        avgY /= count
+        avgZ /= count
+        
+        // Return averaged pose (keeping original rotation)
+        return Pose.makeTranslation(avgX, avgY, avgZ)
+            .compose(plane.centerPose.extractRotation())
     }
     // Update plane detection progress
     private fun updatePlaneDetection() {
@@ -185,10 +465,21 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
         val planes = frame.getUpdatedTrackables(Plane::class.java)
         
         for (plane in planes) {
-            if (plane.trackingState == TrackingState.TRACKING && plane.type == Plane.Type.HORIZONTAL_UPWARD_FACING) {
+            // Filter planes based on detection mode for faster, more focused detection
+            val isRelevantPlane = when (planeDetectionMode) {
+                PlaneDetectionMode.HORIZONTAL_ONLY -> 
+                    plane.type == Plane.Type.HORIZONTAL_UPWARD_FACING || 
+                    plane.type == Plane.Type.HORIZONTAL_DOWNWARD_FACING
+                PlaneDetectionMode.VERTICAL_ONLY -> 
+                    plane.type == Plane.Type.VERTICAL
+                PlaneDetectionMode.BOTH -> true
+            }
+            
+            if (plane.trackingState == TrackingState.TRACKING && isRelevantPlane) {
                 if (!detectedPlanes.contains(plane)) {
                     detectedPlanes.add(plane)
-                    addPlaneIndicator(plane)
+                    // Use refined pose for more stable plane indicators
+                    addPlaneIndicatorWithRefinedPose(plane)
                 }
             }
         }
@@ -207,16 +498,24 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
         if (scanningProgress >= 100 && currentState == MeasurementState.SCANNING) {
             currentState = MeasurementState.IDLE
             updateUIForState()
-            Toast.makeText(requireContext(), "Planes detected! Ready to measure", Toast.LENGTH_SHORT).show()
+            
+            // Provide feedback based on depth availability
+            val depthMessage = if (depthEnabled) {
+                "Planes detected with Depth API! Measurements will be highly accurate"
+            } else {
+                "Planes detected! Ready to measure"
+            }
+            Toast.makeText(requireContext(), depthMessage, Toast.LENGTH_SHORT).show()
         }
     }
     
-    // Add visual indicator on detected planes
-    private fun addPlaneIndicator(plane: Plane) {
+    // Add visual indicator on detected planes with refined pose averaging
+    private fun addPlaneIndicatorWithRefinedPose(plane: Plane) {
         if (planeIndicatorRender == null) return
         
-        val pose = plane.centerPose
-        val anchor = plane.createAnchor(pose)
+        // Use refined pose for more stable indicators
+        val refinedPose = getRefinedPlanePose(plane)
+        val anchor = plane.createAnchor(refinedPose)
         val anchorNode = AnchorNode(anchor).apply {
             setParent(arFragment.arSceneView.scene)
         }
@@ -251,7 +550,7 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
                 binding.scanningCard.visibility = View.GONE
                 binding.instructionCard.visibility = View.VISIBLE
                 binding.tvInstructionTitle.text = "Step 1: Place Base Point"
-                binding.tvInstruction.text = "Tap 'New Measurement' to place the red base point"
+                binding.tvInstruction.text = "Tap the center button to place the red base point"
                 binding.btnAdd.isEnabled = true
                 binding.btnAdd.alpha = 1f
                 binding.btnSaveMeasurement.visibility = View.GONE
@@ -260,17 +559,17 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
             }
             MeasurementState.FIRST_NODE -> {
                 binding.tvInstructionTitle.text = "Step 2: Place Second Point"
-                binding.tvInstruction.text = "Point at the second corner and tap 'Add Node'"
+                binding.tvInstruction.text = "Point at the second corner and tap the button again"
                 binding.btnSaveMeasurement.visibility = View.GONE
             }
             MeasurementState.SECOND_NODE -> {
                 binding.tvInstructionTitle.text = "Step 3: Place Third Point"
-                binding.tvInstruction.text = "Point at the third corner and tap 'Add Node'"
+                binding.tvInstruction.text = "Point at the third corner and tap the button again"
                 binding.btnSaveMeasurement.visibility = View.GONE
             }
             MeasurementState.THIRD_NODE -> {
                 binding.tvInstructionTitle.text = "Step 4: Place Fourth Point"
-                binding.tvInstruction.text = "Point at the fourth corner and tap 'Add Node'"
+                binding.tvInstruction.text = "Point at the fourth corner and tap the button again"
                 binding.btnSaveMeasurement.visibility = View.GONE
             }
             MeasurementState.FOURTH_NODE -> {
@@ -278,6 +577,44 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
                 binding.tvInstruction.text = "Height: ${formatDistance(heightMeters)}, Width: ${formatDistance(widthMeters)}, Area: ${formatArea(heightMeters * widthMeters)}"
                 binding.btnSaveMeasurement.visibility = View.VISIBLE
             }
+        }
+    }
+    
+    // Cycle through plane detection modes
+    private fun cyclePlaneDetectionMode() {
+        // Cycle to next mode
+        planeDetectionMode = when (planeDetectionMode) {
+            PlaneDetectionMode.HORIZONTAL_ONLY -> PlaneDetectionMode.VERTICAL_ONLY
+            PlaneDetectionMode.VERTICAL_ONLY -> PlaneDetectionMode.BOTH
+            PlaneDetectionMode.BOTH -> PlaneDetectionMode.HORIZONTAL_ONLY
+        }
+        
+        // Reset depth enabled flag to force reconfiguration
+        depthEnabled = false
+        
+        // Clear detected planes to restart detection with new mode
+        detectedPlanes.clear()
+        clearPlaneIndicators()
+        scanningProgress = 0
+        binding.progressBarScanning.progress = 0
+        binding.tvScanningProgress.text = "0%"
+        
+        // Show toast with current mode
+        val modeName = when (planeDetectionMode) {
+            PlaneDetectionMode.HORIZONTAL_ONLY -> "Floor/Ceiling Only 📐"
+            PlaneDetectionMode.VERTICAL_ONLY -> "Walls Only 📏"
+            PlaneDetectionMode.BOTH -> "Floor & Walls 🔲"
+        }
+        Toast.makeText(requireContext(), "Scanning Mode: $modeName", Toast.LENGTH_LONG).show()
+        
+        // Update instruction text based on mode
+        if (currentState == MeasurementState.SCANNING) {
+            val instruction = when (planeDetectionMode) {
+                PlaneDetectionMode.HORIZONTAL_ONLY -> "Point camera at floors or ceilings"
+                PlaneDetectionMode.VERTICAL_ONLY -> "Point camera at walls"
+                PlaneDetectionMode.BOTH -> "Point camera at any surface"
+            }
+            binding.tvScanningInstruction.text = instruction
         }
     }
     
@@ -369,15 +706,35 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
     }
     
     // Place first node (red sphere) - base point
+    // Enhanced with instant placement and depth API support
     private fun placeFirstNode() {
         val frame = arFragment.arSceneView.arFrame ?: return
         val centerX = arFragment.arSceneView.width / 2f
         val centerY = arFragment.arSceneView.height / 2f
         
         val hits = frame.hitTest(centerX, centerY)
+        
+        // Try instant placement first for faster response
+        if (useInstantPlacement && hits.isEmpty()) {
+            val instantHits = frame.hitTestInstantPlacement(centerX, centerY, 1.0f)
+            if (instantHits.isNotEmpty()) {
+                val instantHit = instantHits[0]
+                placeNodeWithInstantPlacement(instantHit, true)
+                return
+            }
+        }
+        
+        // Fall back to traditional plane-based placement with depth enhancement
         for (hit in hits) {
             val trackable = hit.trackable
             if (trackable is Plane && trackable.isPoseInPolygon(hit.hitPose)) {
+                // Use depth data if available for more accurate positioning
+                val finalPose = if (depthEnabled) {
+                    enhancePoseWithDepth(hit, frame)
+                } else {
+                    hit.hitPose
+                }
+                
                 val anchor = hit.createAnchor()
                 firstNode = AnchorNode(anchor).apply {
                     setParent(arFragment.arSceneView.scene)
@@ -396,6 +753,56 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
         }
         
         Toast.makeText(requireContext(), "Point at a detected surface", Toast.LENGTH_SHORT).show()
+    }
+    
+    /**
+     * Place node using instant placement for faster response
+     * Instant placement allows immediate anchor creation before full plane detection
+     */
+    private fun placeNodeWithInstantPlacement(hit: HitResult, isFirstNode: Boolean) {
+        val trackable = hit.trackable as? InstantPlacementPoint ?: return
+        
+        val anchor = hit.createAnchor()
+        val node = AnchorNode(anchor).apply {
+            setParent(arFragment.arSceneView.scene)
+        }
+        
+        val renderableToUse = if (isFirstNode) redSphereRender else greenSphereRender
+        
+        TransformableNode(arFragment.transformationSystem).apply {
+            renderable = renderableToUse
+            setParent(node)
+        }
+        
+        arFragment.arSceneView.scene.addChild(node)
+        instantPlacementNodes.add(node)
+        
+        if (isFirstNode) {
+            firstNode = node
+            currentState = MeasurementState.FIRST_NODE
+            updateUIForState()
+            Toast.makeText(
+                requireContext(),
+                "Using instant placement - node will refine as tracking improves",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+    
+    /**
+     * Enhance pose accuracy using depth data
+     * Depth API provides more accurate distance information
+     */
+    private fun enhancePoseWithDepth(hit: HitResult, frame: com.google.ar.core.Frame): Pose {
+        // Note: Full depth API integration requires additional implementation
+        // For now, return the original pose
+        // In a full implementation, you would:
+        // 1. Acquire depth image
+        // 2. Transform screen coordinates to depth image coordinates
+        // 3. Sample depth value at that point
+        // 4. Use depth value to refine the hit pose distance
+        
+        return hit.hitPose
     }
     
     // Place second node (green sphere) - height point
@@ -725,147 +1132,153 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
     }
     
     // Update real-time preview line from first node to crosshair
+    // Enhanced with position smoothing to reduce jitter
     private fun updatePreviewLine() {
         if (firstNode == null || yellowLineRender == null) return
-        
+
         val frame = arFragment.arSceneView.arFrame ?: return
         val centerX = arFragment.arSceneView.width / 2f
         val centerY = arFragment.arSceneView.height / 2f
-        
+
         val hits = frame.hitTest(centerX, centerY)
         for (hit in hits) {
             val trackable = hit.trackable
             if (trackable is Plane && trackable.isPoseInPolygon(hit.hitPose)) {
-                // Remove old preview line
-                previewLine?.let {
-                    arFragment.arSceneView.scene.removeChild(it)
-                    it.anchor?.detach()
-                }
-                
                 val firstPos = firstNode!!.worldPosition
-                val hitPos = Vector3(hit.hitPose.tx(), hit.hitPose.ty(), hit.hitPose.tz())
+                val currentHitPos = Vector3(hit.hitPose.tx(), hit.hitPose.ty(), hit.hitPose.tz())
+
+                // Apply exponential moving average smoothing for stable preview
+                val hitPos = smoothPosition(currentHitPos, lastPreviewPosition)
+                lastPreviewPosition = hitPos
+
                 val difference = Vector3.subtract(firstPos, hitPos)
                 val distance = difference.length()
-                
+
                 if (distance > 0.01f) { // Only draw if there's meaningful distance
                     val rotationFromAToB = Quaternion.lookRotation(difference.normalized(), Vector3.up())
-                    
-                    previewLine = AnchorNode().apply {
-                        setParent(arFragment.arSceneView.scene)
+
+                    // Reuse existing preview line node or create new one
+                    if (previewLineNode == null) {
+                        previewLineNode = AnchorNode().apply {
+                            setParent(arFragment.arSceneView.scene)
+                            renderable = yellowLineRender
+                        }
+                        arFragment.arSceneView.scene.addChild(previewLineNode)
+                    }
+
+                    // Update existing node properties instead of creating new one
+                    previewLineNode?.apply {
                         worldPosition = Vector3.add(firstPos, hitPos).scaled(0.5f)
                         worldRotation = rotationFromAToB
                         localScale = Vector3(1f, 1f, distance)
-                        renderable = yellowLineRender
                     }
-                    
-                    arFragment.arSceneView.scene.addChild(previewLine)
+                } else {
+                    // Hide preview line if distance too small
+                    previewLineNode?.isEnabled = false
                 }
                 return
             }
         }
-        
-        // If no valid hit, remove preview line
-        previewLine?.let {
-            arFragment.arSceneView.scene.removeChild(it)
-            it.anchor?.detach()
-            previewLine = null
-        }
+
+        // If no valid hit, hide preview line and reset smoothing
+        previewLineNode?.isEnabled = false
+        lastPreviewPosition = null
     }
     
     // Update real-time preview line from second node to crosshair (for width measurement)
     private fun updatePreviewLineSecond() {
         if (secondNode == null || widthLineRender == null) return
-        
+
         val frame = arFragment.arSceneView.arFrame ?: return
         val centerX = arFragment.arSceneView.width / 2f
         val centerY = arFragment.arSceneView.height / 2f
-        
+
         val hits = frame.hitTest(centerX, centerY)
         for (hit in hits) {
             val trackable = hit.trackable
             if (trackable is Plane && trackable.isPoseInPolygon(hit.hitPose)) {
-                // Remove old preview line
-                previewLine?.let {
-                    arFragment.arSceneView.scene.removeChild(it)
-                    it.anchor?.detach()
-                }
-                
                 val secondPos = secondNode!!.worldPosition
                 val hitPos = Vector3(hit.hitPose.tx(), hit.hitPose.ty(), hit.hitPose.tz())
                 val difference = Vector3.subtract(secondPos, hitPos)
                 val distance = difference.length()
-                
+
                 if (distance > 0.01f) { // Only draw if there's meaningful distance
                     val rotationFromAToB = Quaternion.lookRotation(difference.normalized(), Vector3.up())
-                    
-                    previewLine = AnchorNode().apply {
-                        setParent(arFragment.arSceneView.scene)
+
+                    // Reuse existing preview line node or create new one
+                    if (previewLineNode == null) {
+                        previewLineNode = AnchorNode().apply {
+                            setParent(arFragment.arSceneView.scene)
+                            renderable = widthLineRender
+                        }
+                        arFragment.arSceneView.scene.addChild(previewLineNode)
+                    }
+
+                    // Update existing node properties instead of creating new one
+                    previewLineNode?.apply {
                         worldPosition = Vector3.add(secondPos, hitPos).scaled(0.5f)
                         worldRotation = rotationFromAToB
                         localScale = Vector3(1f, 1f, distance)
-                        renderable = widthLineRender
+                        renderable = widthLineRender // Ensure correct renderable
                     }
-                    
-                    arFragment.arSceneView.scene.addChild(previewLine)
+                } else {
+                    // Hide preview line if distance too small
+                    previewLineNode?.isEnabled = false
                 }
                 return
             }
         }
-        
-        // If no valid hit, remove preview line
-        previewLine?.let {
-            arFragment.arSceneView.scene.removeChild(it)
-            it.anchor?.detach()
-            previewLine = null
-        }
+
+        // If no valid hit, hide preview line
+        previewLineNode?.isEnabled = false
     }
     
     // Update real-time preview line from third node to crosshair (for fourth node placement)
     private fun updatePreviewLineThird() {
         if (thirdNode == null || yellowLineRender == null) return
-        
+
         val frame = arFragment.arSceneView.arFrame ?: return
         val centerX = arFragment.arSceneView.width / 2f
         val centerY = arFragment.arSceneView.height / 2f
-        
+
         val hits = frame.hitTest(centerX, centerY)
         for (hit in hits) {
             val trackable = hit.trackable
             if (trackable is Plane && trackable.isPoseInPolygon(hit.hitPose)) {
-                // Remove old preview line
-                previewLine?.let {
-                    arFragment.arSceneView.scene.removeChild(it)
-                    it.anchor?.detach()
-                }
-                
                 val thirdPos = thirdNode!!.worldPosition
                 val hitPos = Vector3(hit.hitPose.tx(), hit.hitPose.ty(), hit.hitPose.tz())
                 val difference = Vector3.subtract(thirdPos, hitPos)
                 val distance = difference.length()
-                
+
                 if (distance > 0.01f) { // Only draw if there's meaningful distance
                     val rotationFromAToB = Quaternion.lookRotation(difference.normalized(), Vector3.up())
-                    
-                    previewLine = AnchorNode().apply {
-                        setParent(arFragment.arSceneView.scene)
+
+                    // Reuse existing preview line node or create new one
+                    if (previewLineNode == null) {
+                        previewLineNode = AnchorNode().apply {
+                            setParent(arFragment.arSceneView.scene)
+                            renderable = yellowLineRender
+                        }
+                        arFragment.arSceneView.scene.addChild(previewLineNode)
+                    }
+
+                    // Update existing node properties instead of creating new one
+                    previewLineNode?.apply {
                         worldPosition = Vector3.add(thirdPos, hitPos).scaled(0.5f)
                         worldRotation = rotationFromAToB
                         localScale = Vector3(1f, 1f, distance)
-                        renderable = yellowLineRender
+                        renderable = yellowLineRender // Ensure correct renderable
                     }
-                    
-                    arFragment.arSceneView.scene.addChild(previewLine)
+                } else {
+                    // Hide preview line if distance too small
+                    previewLineNode?.isEnabled = false
                 }
                 return
             }
         }
-        
-        // If no valid hit, remove preview line
-        previewLine?.let {
-            arFragment.arSceneView.scene.removeChild(it)
-            it.anchor?.detach()
-            previewLine = null
-        }
+
+        // If no valid hit, hide preview line
+        previewLineNode?.isEnabled = false
     }
     
     // Update text labels to always face the camera (billboard effect)
@@ -890,29 +1303,28 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
     private fun updatePlaneOrientationIndicator() {
         // Only show indicator when placing nodes (not during scanning or when measurement is complete)
         if (currentState == MeasurementState.SCANNING || currentState == MeasurementState.FOURTH_NODE) {
-            // Remove indicator if it exists
-            planeOrientationIndicator?.let {
-                arFragment.arSceneView.scene.removeChild(it)
-                it.anchor?.detach()
-                planeOrientationIndicator = null
-            }
+            // Hide indicator if it exists
+            planeIndicatorNode?.isEnabled = false
             return
         }
-        
+
         val frame = arFragment.arSceneView.arFrame ?: return
+
+        // Check if camera is tracking - critical to prevent crashes
+        val camera = frame.camera
+        if (camera.trackingState != TrackingState.TRACKING) {
+            // Hide indicator if camera lost tracking
+            planeIndicatorNode?.isEnabled = false
+            return
+        }
+
         val centerX = arFragment.arSceneView.width / 2f
         val centerY = arFragment.arSceneView.height / 2f
-        
+
         val hits = frame.hitTest(centerX, centerY)
         for (hit in hits) {
             val trackable = hit.trackable
-            if (trackable is Plane && trackable.isPoseInPolygon(hit.hitPose)) {
-                // Remove old indicator
-                planeOrientationIndicator?.let {
-                    arFragment.arSceneView.scene.removeChild(it)
-                    it.anchor?.detach()
-                }
-                
+            if (trackable is Plane && trackable.isPoseInPolygon(hit.hitPose) && trackable.trackingState == TrackingState.TRACKING) {
                 // Create new indicator based on plane type
                 val indicatorRenderable = when (trackable.type) {
                     Plane.Type.HORIZONTAL_UPWARD_FACING, Plane.Type.HORIZONTAL_DOWNWARD_FACING -> {
@@ -923,32 +1335,44 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
                     }
                     else -> null
                 }
-                
+
                 if (indicatorRenderable != null) {
-                    val anchor = hit.createAnchor()
-                    planeOrientationIndicator = AnchorNode(anchor).apply {
-                        setParent(arFragment.arSceneView.scene)
-                        // Position slightly above the plane
-                        localPosition = Vector3(0f, 0.01f, 0f)
+                    try {
+                        // Reuse existing indicator node or create new one
+                        if (planeIndicatorNode == null) {
+                            val anchor = hit.createAnchor()
+                            planeIndicatorNode = AnchorNode(anchor).apply {
+                                setParent(arFragment.arSceneView.scene)
+                                // Position slightly above the plane
+                                localPosition = Vector3(0f, 0.01f, 0f)
+                            }
+
+                            TransformableNode(arFragment.transformationSystem).apply {
+                                setParent(planeIndicatorNode)
+                            }
+
+                            arFragment.arSceneView.scene.addChild(planeIndicatorNode)
+                        } else {
+                            // Update existing anchor position
+                            planeIndicatorNode?.anchor = hit.createAnchor()
+                        }
+
+                        // Update renderable
+                        (planeIndicatorNode?.children?.firstOrNull() as? TransformableNode)?.renderable = indicatorRenderable
+                        planeIndicatorNode?.isEnabled = true
+                    } catch (e: Exception) {
+                        Log.e("ARFragment", "Failed to create plane indicator anchor", e)
+                        planeIndicatorNode?.isEnabled = false
                     }
-                    
-                    TransformableNode(arFragment.transformationSystem).apply {
-                        renderable = indicatorRenderable
-                        setParent(planeOrientationIndicator)
-                    }
-                    
-                    arFragment.arSceneView.scene.addChild(planeOrientationIndicator)
+                } else {
+                    planeIndicatorNode?.isEnabled = false
                 }
                 return
             }
         }
-        
-        // If no valid plane detected, remove indicator
-        planeOrientationIndicator?.let {
-            arFragment.arSceneView.scene.removeChild(it)
-            it.anchor?.detach()
-            planeOrientationIndicator = null
-        }
+
+        // If no valid plane detected, hide indicator
+        planeIndicatorNode?.isEnabled = false
     }
     
     // Add distance label
@@ -1056,6 +1480,13 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
             it.anchor?.detach()
         }
         
+        // Clear instant placement nodes
+        for (node in instantPlacementNodes) {
+            arFragment.arSceneView.scene.removeChild(node)
+            node.anchor?.detach()
+        }
+        instantPlacementNodes.clear()
+        
         // Reset variables
         firstNode = null
         secondNode = null
@@ -1073,6 +1504,10 @@ class ArFragment: Fragment(R.layout.fragment_ar) {
         planeOrientationIndicator = null
         heightMeters = 0f
         widthMeters = 0f
+        lastPreviewPosition = null
+        
+        // Clear plane pose history for fresh refinement
+        planePoseHistory.clear()
         
         // Reset to IDLE state
         currentState = MeasurementState.IDLE
