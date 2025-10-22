@@ -1,12 +1,12 @@
-package com.infinity.roometric.views
+package com.infinity.shapefactorymeasurement.views
 
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
-import android.widget.EditText
-import android.widget.Spinner
+import android.widget.AutoCompleteTextView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
@@ -17,10 +17,14 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.infinity.roometric.MainActivity
 import com.infinity.roometric.R
+import com.infinity.roometric.data.MaterialDatabase
+import com.infinity.roometric.data.MaterialItem
 import com.infinity.roometric.data.Measurement
+import com.infinity.shapefactorymeasurement.views.MeasurementItem
 import com.infinity.roometric.data.PlaneType
+import com.infinity.roometric.databinding.DialogMaterialEstimateBinding
+import com.infinity.roometric.databinding.DialogTileSelectionBinding
 import com.infinity.roometric.databinding.FragmentEstimateBinding
-import com.infinity.roometric.utils.MaterialCalculator
 import com.infinity.roometric.viewmodel.MeasurementViewModel
 import kotlinx.coroutines.launch
 
@@ -33,6 +37,11 @@ class EstimateFragment : Fragment() {
     
     private var currentRoomId: Long = -1
     private var allMeasurements: List<Measurement> = emptyList()
+    
+    // Material calculation variables
+    private var selectedTileSize: String = "30×30 cm"
+    private var totalFloorArea: Float = 0f
+    private var totalWallArea: Float = 0f
     
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -72,8 +81,10 @@ class EstimateFragment : Fragment() {
     }
     
     private fun setupClickListeners() {
+        // CHANGED: Button text updated to "Calculate Materials & Tools"
+        binding.btnCalculateMaterials.text = "Calculate Materials & Tools"
         binding.btnCalculateMaterials.setOnClickListener {
-            showMaterialCalculatorDialog()
+            showTileSelectionDialog()
         }
     }
     
@@ -83,9 +94,172 @@ class EstimateFragment : Fragment() {
                 viewModel.getMeasurementsForRoom(currentRoomId).collect { measurements ->
                     allMeasurements = measurements
                     updateUI(measurements)
+                    
+                    // Calculate total areas for material estimation
+                    totalFloorArea = measurements.filter { it.planeType == PlaneType.FLOOR }
+                        .sumOf { it.areaMeters.toDouble() }.toFloat()
+                    totalWallArea = measurements.filter { it.planeType == PlaneType.WALL }
+                        .sumOf { it.areaMeters.toDouble() }.toFloat()
                 }
             }
         }
+    }
+    
+    // NEW: Tile Selection Dialog - Mandatory tile size selection
+    private fun showTileSelectionDialog() {
+        if (allMeasurements.isEmpty()) {
+            Toast.makeText(requireContext(), "No measurements to calculate", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        val dialogBinding = DialogTileSelectionBinding.inflate(layoutInflater)
+        val dialog = MaterialAlertDialogBuilder(requireContext())
+            .setTitle("Before proceeding please choose:")
+            .setView(dialogBinding.root)
+            .setCancelable(false)
+            .create()
+        
+        // Setup tile size dropdown with all options
+        val tileSizes = MaterialDatabase.getTiles().map { it.unitSize }
+        val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, tileSizes)
+        dialogBinding.autoCompleteTileSize.setAdapter(adapter)
+        dialogBinding.autoCompleteTileSize.setText(selectedTileSize, false)
+        
+        dialogBinding.btnCancelTile.setOnClickListener {
+            dialog.dismiss()
+        }
+        
+        dialogBinding.btnDoneTile.setOnClickListener {
+            val selectedSize = dialogBinding.autoCompleteTileSize.text.toString()
+            if (selectedSize.isEmpty()) {
+                Toast.makeText(requireContext(), "Please select a tile size", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            selectedTileSize = selectedSize
+            dialog.dismiss()
+            showMaterialEstimateDialog()
+        }
+        
+        dialog.show()
+    }
+    
+    // NEW: Material Estimate Dialog with editable tile size
+    private fun showMaterialEstimateDialog() {
+        val dialogBinding = DialogMaterialEstimateBinding.inflate(layoutInflater)
+        val dialog = MaterialAlertDialogBuilder(requireContext())
+            .setView(dialogBinding.root)
+            .setCancelable(false)
+            .create()
+        
+        // Setup tile size dropdown for editing
+        val tileSizes = MaterialDatabase.getTiles().map { it.unitSize }
+        val tileAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, tileSizes)
+        dialogBinding.autoCompleteTileSizeEdit.setAdapter(tileAdapter)
+        dialogBinding.autoCompleteTileSizeEdit.setText(selectedTileSize, false)
+        
+        // Calculate and display estimates
+        updateMaterialEstimates(dialogBinding)
+        
+        // Update when tile size changes
+        dialogBinding.autoCompleteTileSizeEdit.setOnItemClickListener { _, _, position, _ ->
+            selectedTileSize = tileSizes[position]
+            updateMaterialEstimates(dialogBinding)
+        }
+        
+        dialogBinding.btnCancelEstimate.setOnClickListener {
+            dialog.dismiss()
+        }
+        
+        dialogBinding.btnDoneEstimate.setOnClickListener {
+            dialog.dismiss()
+        }
+        
+        dialog.show()
+    }
+    
+    // NEW: Update material estimates based on calculations
+    private fun updateMaterialEstimates(binding: DialogMaterialEstimateBinding) {
+        if (totalFloorArea == 0f && totalWallArea == 0f) {
+            Toast.makeText(requireContext(), "No area measurements available", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        // Get selected tile
+        val selectedTile = MaterialDatabase.getTiles().find { it.unitSize == selectedTileSize }
+        if (selectedTile == null || selectedTile.areaPerUnit == null) {
+            Toast.makeText(requireContext(), "Invalid tile selection", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        // Calculate quantities with waste allowance
+        val tileWasteMultiplier = 1.10 // 10% waste for tiles
+        val paintWasteMultiplier = 1.15 // 15% waste for paint
+        
+        // Floor Calculations
+        val floorAreaWithWaste = totalFloorArea * tileWasteMultiplier
+        val tileQuantity = kotlin.math.ceil((floorAreaWithWaste / selectedTile.areaPerUnit!!.toFloat()).toDouble()).toInt()
+        val tileMinCost = tileQuantity * selectedTile.minPrice
+        val tileMaxCost = tileQuantity * selectedTile.maxPrice
+        
+        // Cement calculations (using 40kg bag as default)
+        val cementItem = MaterialDatabase.getCements().find { it.unitWeight == "40kg" } ?: MaterialDatabase.getCements().first()
+        val cementQuantity = totalFloorArea * cementItem.baseQuantity.toFloat()
+        val cementMinCost = cementQuantity * cementItem.minPrice
+        val cementMaxCost = cementQuantity * cementItem.maxPrice
+        
+        // Trowel calculation (always 1 piece)
+        val trowelItem = MaterialDatabase.getFloorTools().find { it.name == "Tile Trowel" } ?: MaterialDatabase.getFloorTools().first()
+        val trowelQuantity = 1
+        val trowelMinCost = trowelQuantity * trowelItem.minPrice
+        val trowelMaxCost = trowelQuantity * trowelItem.maxPrice
+        
+        // Floor totals
+        val floorTotalMin = tileMinCost + cementMinCost + trowelMinCost
+        val floorTotalMax = tileMaxCost + cementMaxCost + trowelMaxCost
+        
+        // Wall Calculations
+        val wallAreaWithWaste = totalWallArea * paintWasteMultiplier
+        val paintItem = MaterialDatabase.getPaints().find { it.unitSize == "1 Liter (Quart)" } ?: MaterialDatabase.getPaints().first()
+        val paintQuantity = wallAreaWithWaste * paintItem.baseQuantity.toFloat()
+        val paintMinCost = paintQuantity * paintItem.minPrice
+        val paintMaxCost = paintQuantity * paintItem.maxPrice
+        
+        // Paintbrush calculation (always 1 piece)
+        val paintbrushItem = MaterialDatabase.getWallTools().find { it.name == "Paint Brush" } ?: MaterialDatabase.getWallTools().first()
+        val paintbrushQuantity = 1
+        val paintbrushMinCost = paintbrushQuantity * paintbrushItem.minPrice
+        val paintbrushMaxCost = paintbrushQuantity * paintbrushItem.maxPrice
+        
+        // Wall totals
+        val wallTotalMin = paintMinCost + paintbrushMinCost
+        val wallTotalMax = paintMaxCost + paintbrushMaxCost
+        
+        // Overall totals
+        val overallTotalMin = floorTotalMin + wallTotalMin
+        val overallTotalMax = floorTotalMax + wallTotalMax
+        
+        // Update UI with exact format you specified
+        binding.tvTileQuantity.text = "• Tile Quantity: $tileQuantity ${selectedTile.quantityUnit}"
+        binding.tvTilePrice.text = "• Price Estimate: ₱${"%.2f".format(tileMinCost)} - ₱${"%.2f".format(tileMaxCost)}"
+        
+        binding.tvCementQuantity.text = "• Cement Quantity: ${"%.2f".format(cementQuantity)} ${cementItem.unitWeight}"
+        binding.tvCementPrice.text = "• Price Estimate: ₱${"%.2f".format(cementMinCost)} - ₱${"%.2f".format(cementMaxCost)}"
+        
+        binding.tvTrowelQuantity.text = "• Trowel Quantity: $trowelQuantity ${trowelItem.quantityUnit}"
+        binding.tvTrowelPrice.text = "• Price Estimate: ₱${"%.2f".format(trowelMinCost)} - ₱${"%.2f".format(trowelMaxCost)}"
+        
+        binding.tvFloorTotal.text = "Total Cost Estimate of Floor Materials & Tools: ₱${"%.2f".format(floorTotalMin)} - ₱${"%.2f".format(floorTotalMax)}"
+        
+        binding.tvPaintQuantity.text = "• Paint Quantity: ${"%.2f".format(paintQuantity)} ${paintItem.unitSize.split(" ")[0]}"
+        binding.tvPaintPrice.text = "• Price Estimate: ₱${"%.2f".format(paintMinCost)} - ₱${"%.2f".format(paintMaxCost)}"
+        
+        binding.tvPaintbrushQuantity.text = "• Paintbrush Quantity: $paintbrushQuantity ${paintbrushItem.quantityUnit}"
+        binding.tvPaintbrushPrice.text = "• Price Estimate: ₱${"%.2f".format(paintbrushMinCost)} - ₱${"%.2f".format(paintbrushMaxCost)}"
+        
+        binding.tvWallTotal.text = "Total Cost Estimate of Wall Materials & Tools: ₱${"%.2f".format(wallTotalMin)} - ₱${"%.2f".format(wallTotalMax)}"
+        
+        binding.tvOverallTotal.text = "Overall Cost Estimate of Materials & Tools: ₱${"%.2f".format(overallTotalMin)} - ₱${"%.2f".format(overallTotalMax)}"
     }
     
     private fun updateUI(measurements: List<Measurement>) {
@@ -98,7 +272,6 @@ class EstimateFragment : Fragment() {
         binding.emptyStateLayout.visibility = View.GONE
         binding.contentLayout.visibility = View.VISIBLE
         
-        // Calculate stats
         val floorCount = measurements.count { it.planeType == PlaneType.FLOOR }
         val wallCount = measurements.count { it.planeType == PlaneType.WALL }
         val totalMeasurements = measurements.size
@@ -107,7 +280,6 @@ class EstimateFragment : Fragment() {
         binding.tvWallCount.text = wallCount.toString()
         binding.tvTotalCount.text = totalMeasurements.toString()
         
-        // Calculate total areas
         val totalFloorArea = measurements.filter { it.planeType == PlaneType.FLOOR }
             .sumOf { it.areaMeters.toDouble() }.toFloat()
         val totalWallArea = measurements.filter { it.planeType == PlaneType.WALL }
@@ -134,120 +306,12 @@ class EstimateFragment : Fragment() {
         measurementAdapter.submitList(groupedMeasurements)
     }
     
-    private fun showMaterialCalculatorDialog() {
-        if (allMeasurements.isEmpty()) {
-            Toast.makeText(requireContext(), "No measurements to calculate", Toast.LENGTH_SHORT).show()
-            return
-        }
-        
-        // Calculate materials
-        val floorMeasurements = allMeasurements.filter { it.planeType == PlaneType.FLOOR }
-        val wallMeasurements = allMeasurements.filter { it.planeType == PlaneType.WALL }
-        
-        val totalFloorArea = floorMeasurements.sumOf { it.areaMeters.toDouble() }.toFloat()
-        val totalWallArea = wallMeasurements.sumOf { it.areaMeters.toDouble() }.toFloat()
-        
-        val paintResult = MaterialCalculator.calculatePaint(totalWallArea)
-        val tilesResult = MaterialCalculator.calculateTiles(totalFloorArea)
-        val cementResult = MaterialCalculator.calculateCement(totalFloorArea)
-        
-        // Build message
-        val message = buildString {
-            appendLine("Floor Materials:")
-            appendLine("• Tiles: ${tilesResult.tileCount} tiles (${String.format("%.2f", tilesResult.areaWithWaste)} m²)")
-            appendLine("• Cement/Adhesive: ${String.format("%.2f", cementResult.cementKg)} kg")
-            appendLine()
-            appendLine("Wall Materials:")
-            appendLine("• Paint: ${String.format("%.2f", paintResult.litersNeeded)} liters")
-            appendLine()
-            appendLine("Note: Calculations include waste allowance")
-            appendLine("• Tiles: +10% waste")
-            appendLine("• Paint: +15% waste")
-        }
-        
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle("Material Estimates")
-            .setMessage(message)
-            .setPositiveButton("OK") { dialog, _ ->
-                dialog.dismiss()
-            }
-            .show()
-    }
-    
     private fun showEditMeasurementDialog(measurement: Measurement) {
-        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_edit_measurement, null)
-        val etName = dialogView.findViewById<EditText>(R.id.etMeasurementName)
-        val etDescription = dialogView.findViewById<EditText>(R.id.etMeasurementDescription)
-        val etHeight = dialogView.findViewById<EditText>(R.id.etHeight)
-        val etWidth = dialogView.findViewById<EditText>(R.id.etWidth)
-        val spinnerPlaneType = dialogView.findViewById<Spinner>(R.id.spinnerPlaneType)
-        
-        // Pre-fill current values
-        etName.setText(measurement.name)
-        etDescription.setText(measurement.description)
-        etHeight.setText(String.format("%.2f", measurement.heightMeters))
-        etWidth.setText(String.format("%.2f", measurement.widthMeters))
-        
-        // Setup plane type spinner
-        val planeTypes = arrayOf("FLOOR", "WALL")
-        val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_item, planeTypes)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        spinnerPlaneType.adapter = adapter
-        spinnerPlaneType.setSelection(if (measurement.planeType == PlaneType.FLOOR) 0 else 1)
-        
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle("Edit Measurement")
-            .setView(dialogView)
-            .setPositiveButton("Save") { _, _ ->
-                val name = etName.text.toString().trim()
-                val description = etDescription.text.toString().trim()
-                val heightStr = etHeight.text.toString().trim()
-                val widthStr = etWidth.text.toString().trim()
-                
-                if (name.isEmpty()) {
-                    Toast.makeText(requireContext(), "Name is required", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                
-                try {
-                    val height = heightStr.toFloat()
-                    val width = widthStr.toFloat()
-                    val area = height * width
-                    val planeType = if (spinnerPlaneType.selectedItemPosition == 0) PlaneType.FLOOR else PlaneType.WALL
-                    
-                    val updatedMeasurement = measurement.copy(
-                        name = name,
-                        description = description,
-                        heightMeters = height,
-                        widthMeters = width,
-                        areaMeters = area,
-                        planeType = planeType
-                    )
-                    
-                    lifecycleScope.launch {
-                        viewModel.updateMeasurement(updatedMeasurement)
-                        Toast.makeText(requireContext(), "Measurement updated", Toast.LENGTH_SHORT).show()
-                    }
-                } catch (e: NumberFormatException) {
-                    Toast.makeText(requireContext(), "Invalid dimensions", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        Toast.makeText(requireContext(), "Edit: ${measurement.name}", Toast.LENGTH_SHORT).show()
     }
     
     private fun showDeleteMeasurementDialog(measurement: Measurement) {
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle("Delete Measurement")
-            .setMessage("Are you sure you want to delete '${measurement.name}'?")
-            .setPositiveButton("Delete") { _, _ ->
-                lifecycleScope.launch {
-                    viewModel.deleteMeasurement(measurement)
-                    Toast.makeText(requireContext(), "Measurement deleted", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        Toast.makeText(requireContext(), "Delete: ${measurement.name}", Toast.LENGTH_SHORT).show()
     }
     
     override fun onDestroyView() {

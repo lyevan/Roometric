@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Material and Tools Estimates"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/black"
+            android:gravity="center"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Floor Materials Section -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Floor Materials and Tools"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/black"
+            android:layout_marginBottom="8dp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@android:color/darker_gray"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Tiles Section -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Tiles [Materials]"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/black"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvTileQuantity"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Tile Quantity: 0 Tiles"
+            android:textSize="12sp"
+            android:layout_marginBottom="4dp" />
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layoutTileSize"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Tile Size"
+            android:layout_marginBottom="8dp"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+
+            <AutoCompleteTextView
+                android:id="@+id/autoCompleteTileSizeEdit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="none" />
+
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <TextView
+            android:id="@+id/tvTilePrice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Price Estimate: ₱0 - ₱0"
+            android:textSize="12sp"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Cement Section -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Cement [Materials]"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/black"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvCementQuantity"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Cement Quantity: 0 kg"
+            android:textSize="12sp"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/tvCementPrice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Price Estimate: ₱0 - ₱0"
+            android:textSize="12sp"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Trowel Section -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Trowel [Tools]"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/black"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvTrowelQuantity"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Trowel Quantity: 0 Piece"
+            android:textSize="12sp"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/tvTrowelPrice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Price Estimate: ₱0 - ₱0"
+            android:textSize="12sp"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Floor Total -->
+        <TextView
+            android:id="@+id/tvFloorTotal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Total Cost Estimate of Floor Materials &amp; Tools: ₱0 - ₱0"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/holo_green_dark"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Wall Materials Section -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Wall Materials and Tools"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/black"
+            android:layout_marginBottom="8dp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@android:color/darker_gray"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Paint Section -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Paint [Materials]"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/black"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvPaintQuantity"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Paint Quantity: 0 Liter"
+            android:textSize="12sp"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/tvPaintPrice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Price Estimate: ₱0 - ₱0"
+            android:textSize="12sp"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Paintbrush Section -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Paintbrush [Tools]"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/black"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvPaintbrushQuantity"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Paintbrush Quantity: 0 Piece"
+            android:textSize="12sp"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/tvPaintbrushPrice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Price Estimate: ₱0 - ₱0"
+            android:textSize="12sp"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Wall Total -->
+        <TextView
+            android:id="@+id/tvWallTotal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Total Cost Estimate of Wall Materials &amp; Tools: ₱0 - ₱0"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/holo_green_dark"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Overall Total -->
+        <TextView
+            android:id="@+id/tvOverallTotal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Overall Cost Estimate of Materials &amp; Tools: ₱0 - ₱0"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/holo_blue_dark"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Note -->
+        <TextView
+            android:id="@+id/tvNote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Note: Calculation include waste allowance for materials. Also the Price and Cost vary from store and time.\n• Tiles: +10% waste\n• Paint: +15% waste"
+            android:textSize="12sp"
+            android:textColor="@android:color/darker_gray"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Buttons -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="end">
+
+            <Button
+                android:id="@+id/btnCancelEstimate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Cancel"
+                android:layout_marginEnd="8dp"
+                style="@style/Widget.Material3.Button.TextButton" />
+
+            <Button
+                android:id="@+id/btnDoneEstimate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Done"
+                style="@style/Widget.Material3.Button" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</ScrollView>
