@@ -20,7 +20,7 @@
             android:exported="true"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize"
-            android:theme="@style/Theme.Roometric">
+            android:theme="@style/Theme.Roometric.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

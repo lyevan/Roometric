@@ -13,4 +13,14 @@
         <item name="android:statusBarColor" tools:targetApi="l">?attr/colorPrimaryVariant</item>
         <!-- Customize your theme here. -->
     </style>
+
+    <!-- Splash Screen Theme -->
+    <style name="Theme.Roometric.Splash" parent="Theme.SplashScreen">
+        <!-- Set the splash screen background color (white/light background) -->
+        <item name="windowSplashScreenBackground">@android:color/white</item>
+        <!-- Set the splash screen icon (your custom logo) -->
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <!-- Set the theme to use after splash screen -->
+        <item name="postSplashScreenTheme">@style/Theme.Roometric</item>
+    </style>
 </resources>

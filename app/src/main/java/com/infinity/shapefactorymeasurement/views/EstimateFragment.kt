@@ -1,4 +1,4 @@
-package com.infinity.shapefactorymeasurement.views
+package com.infinity.roometric.views
 
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -20,7 +20,7 @@ import com.infinity.roometric.R
 import com.infinity.roometric.data.MaterialDatabase
 import com.infinity.roometric.data.MaterialItem
 import com.infinity.roometric.data.Measurement
-import com.infinity.shapefactorymeasurement.views.MeasurementItem
+import com.infinity.roometric.views.MeasurementItem
 import com.infinity.roometric.data.PlaneType
 import com.infinity.roometric.databinding.DialogMaterialEstimateBinding
 import com.infinity.roometric.databinding.DialogTileSelectionBinding

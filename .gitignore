@@ -12,10 +12,13 @@
 /captures
 .externalNativeBuild
 .cxx
-local.properties
 
 # Java heap dump files
 *.hprof
 
 # Android Studio
 .idea/
+
+
+gradle.properties
+local.properties

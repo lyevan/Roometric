@@ -1,6 +1,6 @@
-package com.infinity.shapefactorymeasurement.views
+package com.infinity.roometric.views
 
-import com.infinity.shapefactorymeasurement.data.Measurement
+import com.infinity.roometric.data.Measurement
 
 sealed class MeasurementItem {
     data class Header(val title: String) : MeasurementItem()

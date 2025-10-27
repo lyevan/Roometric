@@ -9,11 +9,6 @@ import com.infinity.roometric.data.Measurement
 import com.infinity.roometric.databinding.ItemMeasurementBinding
 import com.infinity.roometric.databinding.ItemMeasurementHeaderBinding
 
-sealed class MeasurementItem {
-    data class Header(val title: String) : MeasurementItem()
-    data class Data(val measurement: Measurement) : MeasurementItem()
-}
-
 class MeasurementAdapter(
     private val onEditClick: (Measurement) -> Unit,
     private val onDeleteClick: (Measurement) -> Unit
